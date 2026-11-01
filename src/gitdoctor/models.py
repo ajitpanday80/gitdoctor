@@ -18,6 +18,7 @@ class Finding:
     rule: Optional[str] = None
     fix: Optional[str] = None
     fingerprint: Optional[str] = None
+    ref: Optional[str] = None  # branch name, for branch findings
 
     def to_dict(self) -> dict:
         return {k: v for k, v in asdict(self).items() if v is not None}

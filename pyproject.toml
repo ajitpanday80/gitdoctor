@@ -19,6 +19,10 @@ classifiers = [
 ]
 dependencies = []
 
+[project.urls]
+Homepage = "https://github.com/ajitpanday80/something"
+Issues = "https://github.com/ajitpanday80/something/issues"
+
 [project.optional-dependencies]
 dev = ["pytest"]
 

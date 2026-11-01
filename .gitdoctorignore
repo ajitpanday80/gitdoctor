@@ -1,0 +1,2 @@
+# Test strings that intentionally look like credentials (real tokens are never stored here)
+tests/test_secrets.py

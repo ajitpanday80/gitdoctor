@@ -1,0 +1,7 @@
+- id: gitdoctor
+  name: gitdoctor (block secrets in staged changes)
+  description: Fails the commit if staged changes contain credentials.
+  entry: gitdoctor --staged --color always
+  language: python
+  pass_filenames: false
+  always_run: true

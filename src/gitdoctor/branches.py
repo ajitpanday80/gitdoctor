@@ -39,7 +39,7 @@ def check_branches(repo: Path, stale_days: int = 90) -> list[Finding]:
             out.append(Finding(
                 "branch", "low", "Merged branch, safe to delete",
                 f"{name}  ·  {_age(days)}" + ("  ·  remote deleted" if gone else ""),
-                fix=f"git branch -d {name}",
+                fix=f"git branch -d {name}", ref=name,
             ))
         elif not is_merged and days >= stale_days:
             ahead = git(repo, "rev-list", "--count", f"{base}..{name}", check=False).strip() or "?"
@@ -48,6 +48,7 @@ def check_branches(repo: Path, stale_days: int = 90) -> list[Finding]:
                 f"{name}  ·  {_age(days)}  ·  {ahead} commit(s) not in {base}"
                 + ("  ·  remote deleted" if gone else ""),
                 fix=f"git log {base}..{name}  # review, then merge or git branch -D {name}",
+                ref=name,
             ))
     return out
 

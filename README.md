@@ -55,7 +55,7 @@ gitdoctor .                  # just this repo (or the repos under this folder)
 
 | | Check | Details |
 |---|---|---|
-| ✖ | **Leaked secrets** | AWS, GitHub, Slack, Stripe live and Google keys, private-key blocks, plus a hardcoded-credential heuristic (entropy-checked, placeholder-aware) |
+| ✖ | **Leaked secrets** | AWS, GitHub, GitLab, npm, Slack (tokens and webhooks), Stripe live, Google, SendGrid and Anthropic keys; private-key blocks; DB URLs with passwords; plus an entropy-checked, placeholder-aware hardcoded-credential heuristic |
 | ✖ | **Secrets in history** | `--history` finds credentials you "deleted" but that still live in old commits |
 | ⚠ | **Merged branches** | Safe to delete. Prints the `git branch -d` command |
 | ⚠ | **Stale unmerged branches** | Shows how many commits would be lost, and the command to review them first |
@@ -76,6 +76,30 @@ Deleting a secret in a new commit does not remove it. Anyone who can clone the r
 
 Findings marked `(history only)` are no longer in your files but remain in git history. Treat them as compromised: rotate the credential first, then rewrite history with [`git filter-repo`](https://github.com/newren/git-filter-repo).
 
+## Block secrets before they're committed
+
+Most leaks start with a `git add .`. `gitdoctor --staged` scans only what you are about to commit, so it stays fast and never nags you about old history.
+
+<p align="center">
+  <img src="docs/hook.png" alt="gitdoctor blocking a git commit that contains an AWS key" width="760">
+</p>
+
+With the [pre-commit](https://pre-commit.com) framework, add this to `.pre-commit-config.yaml`:
+
+```yaml
+repos:
+  - repo: https://github.com/ajitpanday80/something
+    rev: main          # pin a tag or commit once you cut a release
+    hooks:
+      - id: gitdoctor
+```
+
+Or without any framework, as a plain git hook:
+
+```bash
+printf '#!/bin/sh\ngitdoctor --staged\n' > .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
+```
+
 ## Use it in CI
 
 Exit code is `1` when something at or above `--fail-on` severity is found (default `high`).
@@ -86,6 +110,15 @@ Exit code is `1` when something at or above `--fail-on` severity is found (defau
     fetch-depth: 0
 - run: pipx install git+https://github.com/ajitpanday80/something
 - run: gitdoctor . --history --fail-on high
+```
+
+Show findings in GitHub's **Security → Code scanning** tab with SARIF:
+
+```yaml
+- run: gitdoctor . --history --format sarif --fail-on never > gitdoctor.sarif
+- uses: github/codeql-action/upload-sarif@v3
+  with:
+    sarif_file: gitdoctor.sarif
 ```
 
 Machine-readable output for dashboards and scripts:
@@ -104,14 +137,23 @@ gitdoctor ~/code --json | jq '.repos[] | select(.score < 60) | .name'
 | `--max-depth N` | 4 | How deep to look for repos |
 | `--exclude GLOB` | | Skip matching files (repeatable) |
 | `--fail-on LEVEL` | `high` | `high`, `medium`, `low` or `never` |
-| `--json` | off | JSON output |
+| `--staged` | off | Scan only staged changes (pre-commit hook mode) |
+| `--format` | `text` | `text`, `json` or `sarif` (`--json` is a shorthand) |
+| `--prune-merged` | off | Delete merged stale branches with `git branch -d`, after asking (`--yes` skips the prompt) |
 | `--color` | `auto` | `auto`, `always`, `never` (`NO_COLOR` is respected) |
 
-Silence a known false positive by putting `gitdoctor:ignore` in a comment on that line.
+**Silencing false positives:** put `gitdoctor:ignore` in a comment on that line, or list globs in a `.gitdoctorignore` file at the repo root:
+
+```gitignore
+# fake credentials used by tests
+tests/fixtures/
+*.sample.env
+```
 
 ## Safety
 
-- **Read-only.** It runs `git log`, `git status`, `git for-each-ref` and friends. It never commits, deletes, fetches, or changes anything. Fix commands are printed for you to run.
+- **Read-only by default.** It runs `git log`, `git status`, `git for-each-ref` and friends. It never commits, fetches, or changes anything. Fix commands are printed for you to run.
+- **The one exception is opt-in.** `--prune-merged` deletes branches, only after you confirm, and only with `git branch -d`, which git itself refuses to run on unmerged work.
 - **No network.** Nothing is uploaded or looked up. Your code never leaves your machine.
 - **Secrets are never printed in full.** Output shows only a harmless prefix such as `ghp_` or `AKIA`, in both the terminal and `--json` modes. This is covered by tests.
 
@@ -119,7 +161,7 @@ Silence a known false positive by putting `gitdoctor:ignore` in a comment on tha
 
 - **Detection is pattern-based.** It ships a small set of high-signal rules. Dedicated scanners such as [gitleaks](https://github.com/gitleaks/gitleaks) and [trufflehog](https://github.com/trufflesecurity/trufflehog) have far larger rule sets, and trufflehog can verify whether a key is live. For a formal audit, use one of those too. gitdoctor's niche is one fast sweep across *all* your repos with hygiene checks included.
 - **It cannot know if a key is still valid.** A finding means "this looks like a credential", not "this is exploitable".
-- **Generic matches can be false positives** (and real secrets in unusual formats can be missed).
+- **Generic matches can be false positives** (and real secrets in unusual formats can be missed). Provider-format rules are written from my knowledge of each format and tested only against synthetic examples, not against live keys.
 - **`--history` is bounded** by `--history-depth` and reads diffs, so it will be slow on very large repos.
 - Only local branches are checked for staleness, not remote-tracking ones.
 
@@ -140,12 +182,16 @@ pip install playwright pillow
 python tools/render_assets.py
 ```
 
+The hook screenshot is produced by a real `pre-commit` hook blocking a real `git commit` in a throwaway repo.
+
 ## Roadmap
 
-- [ ] `.gitdoctorignore` file
-- [ ] SARIF output for GitHub code scanning
+- [x] Pre-commit hook mode (`--staged`)
+- [x] SARIF output for GitHub code scanning
+- [x] `.gitdoctorignore`
+- [x] `--prune-merged`
 - [ ] Remote-tracking branch checks
-- [ ] Optional `--fix` for safe actions (deleting merged branches), behind a confirmation prompt
+- [ ] Publish to PyPI
 - [ ] More secret rules, contributed by the community. See `src/gitdoctor/secrets.py`; a rule is one regex and a test
 
 ## License

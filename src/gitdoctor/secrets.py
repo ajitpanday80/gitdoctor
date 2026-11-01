@@ -47,6 +47,20 @@ RULES: tuple[Rule, ...] = (
          re.compile(r"\b(?:sk|rk)_live_[A-Za-z0-9]{16,}\b"), "high", _ROTATE),
     Rule("google-api-key", "Google API key",
          re.compile(r"\bAIza[0-9A-Za-z_\-]{35}\b"), "high", _ROTATE),
+    Rule("gitlab-token", "GitLab personal access token",
+         re.compile(r"\bglpat-[A-Za-z0-9_\-]{20,}\b"), "high", _ROTATE),
+    Rule("npm-token", "npm access token",
+         re.compile(r"\bnpm_[A-Za-z0-9]{36}\b"), "high", _ROTATE),
+    Rule("sendgrid-key", "SendGrid API key",
+         re.compile(r"\bSG\.[A-Za-z0-9_\-]{22}\.[A-Za-z0-9_\-]{43}\b"), "high", _ROTATE),
+    Rule("anthropic-key", "Anthropic API key",
+         re.compile(r"\bsk-ant-[A-Za-z0-9_\-]{20,}"), "high", _ROTATE),
+    Rule("slack-webhook", "Slack webhook URL",
+         re.compile(r"https://hooks\.slack\.com/services/T[A-Z0-9]+/B[A-Z0-9]+/[A-Za-z0-9]{16,}"),
+         "high", "Webhook URLs are credentials: anyone with it can post. Regenerate it."),
+    Rule("db-url-password", "Database URL with password",
+         re.compile(r"\b(?:postgres(?:ql)?|mysql|mariadb|mongodb(?:\+srv)?|redis|amqps?)://[^:\s/@'\"]+:(?!\$\{|<|%s|\{\{)[^@\s'\"]{4,}@"),
+         "medium", "Move the password to an env var or secret manager; rotate it if it was real."),
     Rule("private-key", "Private key block",
          re.compile(r"-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY(?: BLOCK)?-----"),
          "high", "Remove the key from the repo, treat it as compromised, and replace it."),
@@ -158,26 +172,13 @@ def scan_working_tree(repo: Path, excludes: Iterable[str] = ()) -> list[Finding]
 _HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)")
 
 
-def scan_history(
-    repo: Path,
-    max_commits: int = 1000,
-    excludes: Iterable[str] = (),
-    skip: Iterable[str] = (),
-) -> list[Finding]:
-    """Scan lines ever added in history. `skip` = fingerprints already reported."""
-    if not has_commits(repo):
-        return []
-    skip_set = set(skip)
-    try:
-        log = git(repo, "log", "--all", "-p", "-U0", "--no-color", "--no-ext-diff",
-                  f"--max-count={max_commits}", "--format=@@commit %H")
-    except GitError:
-        return []
+def _scan_diff(text: str, excludes: Iterable[str], skip: set[str]) -> list[Finding]:
+    """Scan the added lines of a `-U0` unified diff (optionally preceded by `@@commit <sha>` markers)."""
     out: list[Finding] = []
     seen: set[str] = set()
     commit = path = ""
     lineno = 0
-    for raw in log.splitlines():
+    for raw in text.splitlines():
         if raw.startswith("@@commit "):
             commit, path = raw.split(" ", 1)[1], ""
         elif raw.startswith("+++ "):
@@ -189,10 +190,41 @@ def scan_history(
             if _is_text_candidate(path, excludes):
                 for hit in scan_line(raw[1:]):
                     fp = fingerprint(hit.rule.id, hit.secret)
-                    if fp not in skip_set and fp not in seen:
-                        seen.add(fp)
+                    if fp in skip or fp in seen:
+                        continue
+                    seen.add(fp)
+                    if commit:
                         f = _finding(hit, path, lineno, commit[:8], extra="  (history only)")
                         f.fix = "Already pushed? Assume it's public: rotate it, then rewrite history."
-                        out.append(f)
+                    else:
+                        f = _finding(hit, path, lineno, extra="  (staged)")
+                        f.fix = "Remove it from the staged change and load it from an env var instead."
+                    out.append(f)
             lineno += 1
     return out
+
+
+def scan_history(
+    repo: Path,
+    max_commits: int = 1000,
+    excludes: Iterable[str] = (),
+    skip: Iterable[str] = (),
+) -> list[Finding]:
+    """Scan lines ever added in history. `skip` = fingerprints already reported."""
+    if not has_commits(repo):
+        return []
+    try:
+        log = git(repo, "log", "--all", "-p", "-U0", "--no-color", "--no-ext-diff",
+                  f"--max-count={max_commits}", "--format=@@commit %H")
+    except GitError:
+        return []
+    return _scan_diff(log, excludes, set(skip))
+
+
+def scan_staged(repo: Path, excludes: Iterable[str] = ()) -> list[Finding]:
+    """Scan only what is about to be committed (`git diff --cached`)."""
+    try:
+        diff = git(repo, "diff", "--cached", "-U0", "--no-color", "--no-ext-diff", "--diff-filter=ACMR")
+    except GitError:
+        return []
+    return _scan_diff(diff, excludes, set())

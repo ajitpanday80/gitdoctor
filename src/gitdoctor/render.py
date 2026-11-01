@@ -61,7 +61,7 @@ def _group(findings: list[Finding], kind: str) -> list[Finding]:
     return sorted((f for f in findings if f.kind == kind), key=lambda f: (order[f.severity], f.path or "", f.line or 0))
 
 
-def render(reports: list[RepoReport], elapsed: float, color: bool, history: bool) -> str:
+def render(reports: list[RepoReport], elapsed: float, color: bool, history: bool, staged: bool = False) -> str:
     st = Style(color)
     width = min(shutil.get_terminal_size((100, 24)).columns, 100)
     out: list[str] = []
@@ -71,7 +71,7 @@ def render(reports: list[RepoReport], elapsed: float, color: bool, history: bool
     p("")
     p(f" {st.bold(st.violet('gitdoctor'))} {st.gray('v' + __version__)}  "
       f"{st.gray('·')}  scanned {st.bold(str(len(reports)))} repo{'s' if len(reports) != 1 else ''} "
-      f"in {elapsed:.2f}s{st.gray('  ·  history scan on') if history else ''}")
+      f"in {elapsed:.2f}s{st.gray('  ·  history scan on') if history else ''}{st.gray('  ·  staged changes only') if staged else ''}")
     p("")
 
     for r in sorted(reports, key=lambda r: (r.score, r.name)):
@@ -79,13 +79,15 @@ def render(reports: list[RepoReport], elapsed: float, color: bool, history: bool
         head = f" {st.bold(_home(r.path))}  {st.gray(r.branch)}"
         score = f"{_bar(st, r.score, r.grade)} {gc(st.bold(str(r.score)))}{st.gray('/100')} {gc(st.bold(r.grade))}"
         p(head)
-        p(f" {score}")
+        if not staged:
+            p(f" {score}")
         if r.error:
             p(f"   {st.red('error:')} {r.error}")
             p("")
             continue
         if not r.findings:
-            p(f"   {st.green('✔')} {st.dim('clean: no secrets, no stale branches, nothing unpushed')}")
+            msg = "no secrets in staged changes" if staged else "clean: no secrets, no stale branches, nothing unpushed"
+            p(f"   {st.green('✔')} {st.dim(msg)}")
             p("")
             continue
 
@@ -125,8 +127,12 @@ def render(reports: list[RepoReport], elapsed: float, color: bool, history: bool
         f"{st.gray('·')}  {st.red(str(secrets_n))} secrets  "
         f"{st.gray('·')}  {st.yellow(str(branches_n))} branches"
     )
+    if staged:
+        summary = f" {st.bold(str(total_f))} finding{'s' if total_f != 1 else ''} in staged changes"
     p(summary)
-    if highs:
+    if highs and staged:
+        p(f" {st.red('✖')} commit blocked. Remove the secret, or bypass once with {st.bold('git commit --no-verify')}")
+    elif highs:
         p(f" {st.red('✖')} {highs} high-severity finding{'s' if highs != 1 else ''}: exit code 1")
     elif total_f == 0:
         p(f" {st.green('✔')} all clear")

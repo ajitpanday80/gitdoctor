@@ -59,3 +59,55 @@ def test_high_severity_secret_caps_score(tmp_path, capsys):
     main([str(tmp_path), "--json", "--fail-on", "never"])
     repo_report = json.loads(capsys.readouterr().out)["repos"][0]
     assert repo_report["score"] <= 55 and repo_report["grade"] in ("D", "F")
+
+
+def test_gitdoctorignore_file(tmp_path, capsys):
+    repo = make_repo(tmp_path / "r")
+    commit(repo, {"fixtures/a.env": f"K={aws_key()}\n", ".gitdoctorignore": "# fake data\nfixtures/\n"})
+    assert main([str(tmp_path), "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["repos"][0]["findings"] == []
+
+
+def test_staged_mode_blocks_commit_and_ignores_history(tmp_path, capsys, monkeypatch):
+    from helpers import sh
+
+    repo = make_repo(tmp_path / "r")
+    commit(repo, {"old.env": f"K={aws_key()}\n"})  # already committed: staged mode must not care
+    (repo / "new.env").write_text(f"K={aws_key()[:-1]}Z\n")
+    sh(repo, "add", "new.env")
+    monkeypatch.chdir(repo / ".")
+    assert main(["--staged", "--color", "never"]) == 1
+    assert "new.env:1" in capsys.readouterr().out
+    sh(repo, "reset", "-q")
+    assert main(["--staged", "--color", "never"]) == 0
+
+
+def test_sarif_output(tmp_path, capsys):
+    repo = make_repo(tmp_path / "r")
+    commit(repo, {"cfg/x.env": f"K={aws_key()}\n"})
+    main([str(tmp_path), "--format", "sarif", "--fail-on", "never"])
+    out = capsys.readouterr().out
+    doc = json.loads(out)
+    res = doc["runs"][0]["results"][0]
+    assert doc["version"] == "2.1.0" and res["ruleId"] == "aws-access-key" and res["level"] == "error"
+    loc = res["locations"][0]["physicalLocation"]
+    assert loc["artifactLocation"]["uri"] == "cfg/x.env" and loc["region"]["startLine"] == 1
+    assert aws_key() not in out
+
+
+def test_prune_merged_deletes_only_merged(tmp_path, capsys):
+    from helpers import sh
+
+    old = "2020-01-01T00:00:00"
+    repo = make_repo(tmp_path / "r")
+    commit(repo, {"a": "1"}, date=old)
+    sh(repo, "checkout", "-q", "-b", "done")
+    commit(repo, {"b": "1"}, date=old)
+    sh(repo, "checkout", "-q", "main")
+    sh(repo, "merge", "-q", "--no-ff", "done", "-m", "m", date=old)
+    sh(repo, "checkout", "-q", "-b", "wip")
+    commit(repo, {"c": "1"}, date=old)
+    sh(repo, "checkout", "-q", "main")
+    main([str(tmp_path), "--prune-merged", "--yes", "--color", "never", "--fail-on", "never"])
+    branches = sh(repo, "branch", "--format=%(refname:short)").split()
+    assert "done" not in branches and "wip" in branches and "main" in branches

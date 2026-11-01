@@ -75,6 +75,18 @@ def main():
         "screenshot.png": ("gitdoctor ~/code", "$ gitdoctor ~/code\n" + run(str(code))),
         "history.png": ("gitdoctor ~/code --history", "$ gitdoctor ~/code --history\n" + run(str(code), "--history")),
     }
+    # a real pre-commit hook blocking a real commit
+    hook_repo = code / "payments-api"
+    hook = hook_repo / ".git" / "hooks" / "pre-commit"
+    hook.write_text("#!/bin/sh\ngitdoctor --staged --color always\n"); hook.chmod(0o755)
+    key = "AK" + "IA" + "7XQ2MZPL4TWB9KDC"
+    (hook_repo / "config" / "staging.env").write_text(f"AWS_ACCESS_KEY_ID={key}\nAWS_REGION=eu-west-1\n")
+    genv = {**env, "GIT_AUTHOR_NAME": "Dev", "GIT_AUTHOR_EMAIL": "d@e.co", "GIT_COMMITTER_NAME": "Dev", "GIT_COMMITTER_EMAIL": "d@e.co"}
+    subprocess.run(["git", "-C", str(hook_repo), "add", "config/staging.env"], check=True, env=genv)
+    r = subprocess.run(["git", "-C", str(hook_repo), "commit", "-m", "add staging config"], capture_output=True, text=True, env=genv)
+    assert r.returncode != 0, "hook should have blocked the commit"
+    blocked = (r.stdout + r.stderr).rstrip("\n")
+    shots["hook.png"] = ("git commit", "$ git commit -m \"add staging config\"\n" + blocked)
     # the typed command should look like a prompt, not an escape-coded string
     prompt = lambda s: re.sub(r"^\$ (.*)\n", lambda m: f"\x1b[38;5;114m❯\x1b[0m \x1b[1m{m.group(1)}\x1b[0m\n", s, count=1)
 
