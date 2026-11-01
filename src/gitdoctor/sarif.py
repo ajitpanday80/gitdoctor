@@ -40,7 +40,7 @@ def to_sarif(reports: list[RepoReport]) -> dict:
             "tool": {"driver": {
                 "name": "gitdoctor",
                 "version": __version__,
-                "informationUri": "https://github.com/ajitpanday80/something",
+                "informationUri": "https://github.com/ajitpanday80/gitdoctor",
                 "rules": list(rules.values()),
             }},
             "results": results,

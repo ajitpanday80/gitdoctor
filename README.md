@@ -4,7 +4,7 @@
 
 <br>
 
-[![CI](https://github.com/ajitpanday80/something/actions/workflows/ci.yml/badge.svg)](https://github.com/ajitpanday80/something/actions/workflows/ci.yml)
+[![CI](https://github.com/ajitpanday80/gitdoctor/actions/workflows/ci.yml/badge.svg)](https://github.com/ajitpanday80/gitdoctor/actions/workflows/ci.yml)
 ![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-3776ab?logo=python&logoColor=white)
 ![Dependencies: none](https://img.shields.io/badge/dependencies-none-8ce99a)
 ![License: MIT](https://img.shields.io/badge/license-MIT-blue)
@@ -28,13 +28,13 @@ You have dozens of repos. Some have an `.env` you committed at 2 a.m. Some have 
 ## Install
 
 ```bash
-pipx install git+https://github.com/ajitpanday80/something
+pipx install git+https://github.com/ajitpanday80/gitdoctor
 ```
 
 or, without `pipx`:
 
 ```bash
-pip install git+https://github.com/ajitpanday80/something
+pip install git+https://github.com/ajitpanday80/gitdoctor
 ```
 
 Python 3.9+ and `git` on your `PATH`. No other dependencies.
@@ -88,7 +88,7 @@ With the [pre-commit](https://pre-commit.com) framework, add this to `.pre-commi
 
 ```yaml
 repos:
-  - repo: https://github.com/ajitpanday80/something
+  - repo: https://github.com/ajitpanday80/gitdoctor
     rev: main          # pin a tag or commit once you cut a release
     hooks:
       - id: gitdoctor
@@ -108,7 +108,7 @@ Exit code is `1` when something at or above `--fail-on` severity is found (defau
 - uses: actions/checkout@v4
   with:
     fetch-depth: 0
-- run: pipx install git+https://github.com/ajitpanday80/something
+- run: pipx install git+https://github.com/ajitpanday80/gitdoctor
 - run: gitdoctor . --history --fail-on high
 ```
 
@@ -168,7 +168,7 @@ tests/fixtures/
 ## Development
 
 ```bash
-git clone https://github.com/ajitpanday80/something && cd something
+git clone https://github.com/ajitpanday80/gitdoctor && cd gitdoctor
 pip install -e ".[dev]"
 pytest
 ```
